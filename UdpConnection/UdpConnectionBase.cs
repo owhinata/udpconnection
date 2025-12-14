@@ -9,9 +9,9 @@ using UdpConnection.Serialization;
 namespace UdpConnection;
 
 /// <summary>
-/// UDPでデータの送受信を行うクラス
+/// UDP接続の抽象基底クラス
 /// </summary>
-public class UdpConnection : IDisposable
+public abstract class UdpConnectionBase : IDisposable
 {
     private readonly ILogger? _logger;
     private UdpClient? _udpClient;
@@ -23,15 +23,10 @@ public class UdpConnection : IDisposable
     private bool _disposed;
     private readonly object _lock = new();
 
-    public UdpConnection(ILogger? logger = null)
+    protected UdpConnectionBase(ILogger? logger = null)
     {
         _logger = logger;
     }
-
-    /// <summary>
-    /// SampleDownメッセージ受信時に発火するイベント
-    /// </summary>
-    public event EventHandler<SampleDownMessage>? SampleDownReceived;
 
     /// <summary>
     /// 送受信を開始する
@@ -59,13 +54,17 @@ public class UdpConnection : IDisposable
     }
 
     /// <summary>
-    /// SampleUpメッセージを送信する
+    /// 受信データを処理する（派生クラスで実装）
     /// </summary>
-    /// <param name="message">送信するメッセージ</param>
-    /// <returns>送信キューへの追加に成功した場合はtrue</returns>
-    public bool SendSampleUpMessage(SampleUpMessage message)
+    protected abstract void ProcessReceivedData(byte[] data);
+
+    /// <summary>
+    /// メッセージを送信する
+    /// </summary>
+    protected bool SendMessage<T>(MessageType type, T message)
+        where T : IMessage
     {
-        return SendMessageAsync(MessageType.SampleUp, message, CancellationToken.None)
+        return SendMessageAsync(type, message, CancellationToken.None)
             .ConfigureAwait(false)
             .GetAwaiter()
             .GetResult();
@@ -279,33 +278,22 @@ public class UdpConnection : IDisposable
         }
     }
 
-    private void ProcessReceivedData(byte[] data)
+    /// <summary>
+    /// 受信ログを出力する（派生クラスから呼び出し）
+    /// </summary>
+    protected void LogReceive<T>(MessageType type, T message, byte[] packet)
+        where T : IMessage
     {
-        if (data.Length < ProtocolConstants.HeaderSize)
+        if (_logger == null)
         {
-            return; // ヘッダーが不完全
+            return;
         }
 
-        var header = MessageHeader.ReadFrom(data);
+        _logger.LogI($"[Recv] {type}: {message.ToLogString()}");
 
-        if (data.Length < ProtocolConstants.HeaderSize + header.PayloadLength)
+        if (_logger.IsEnabled(LogLevel.Debug))
         {
-            return; // ペイロードが不完全
-        }
-
-        var payloadReader = new BitReader(data, ProtocolConstants.HeaderSize, header.PayloadLength);
-
-        switch (header.Type)
-        {
-            case MessageType.SampleDown:
-                var sampleDownMessage = SampleDownMessage.ReadFrom(payloadReader);
-                LogReceive(header.Type, sampleDownMessage, data);
-                SampleDownReceived?.Invoke(this, sampleDownMessage);
-                break;
-
-            default:
-                // 未知のメッセージタイプは無視
-                break;
+            _logger.LogD($"       Hex: {ToHexString(packet)}");
         }
     }
 
@@ -318,22 +306,6 @@ public class UdpConnection : IDisposable
         }
 
         _logger.LogI($"[Send] {type}: {message.ToLogString()}");
-
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            _logger.LogD($"       Hex: {ToHexString(packet)}");
-        }
-    }
-
-    private void LogReceive<T>(MessageType type, T message, byte[] packet)
-        where T : IMessage
-    {
-        if (_logger == null)
-        {
-            return;
-        }
-
-        _logger.LogI($"[Recv] {type}: {message.ToLogString()}");
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
