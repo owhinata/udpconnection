@@ -19,10 +19,15 @@ public abstract class UdpConnectionBase : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _receiveLoop;
     private Task? _sendLoop;
-    private Channel<byte[]>? _sendChannel;
+    private Channel<(byte[] packet, IPEndPoint? destination)>? _sendChannel;
     private IPEndPoint? _remoteEndPoint;
     private bool _disposed;
     private readonly object _lock = new();
+
+    /// <summary>
+    /// リモートエンドポイントを取得する
+    /// </summary>
+    protected IPEndPoint? GetRemoteEndPoint() => _remoteEndPoint;
 
     protected UdpConnectionBase(ILogger? logger = null)
     {
@@ -34,7 +39,7 @@ public abstract class UdpConnectionBase : IDisposable
     /// </summary>
     /// <param name="options">接続オプション</param>
     /// <returns>成功した場合はtrue、既に開始済みまたは失敗した場合はfalse</returns>
-    public bool Start(UdpConnectionOptions options)
+    public virtual bool Start(UdpConnectionOptions options)
     {
         return StartAsync(options, CancellationToken.None)
             .ConfigureAwait(false)
@@ -46,7 +51,7 @@ public abstract class UdpConnectionBase : IDisposable
     /// 送受信を停止する
     /// </summary>
     /// <returns>成功した場合はtrue、既に停止済みの場合はfalse</returns>
-    public bool Stop()
+    public virtual bool Stop()
     {
         return StopAsync(CancellationToken.None)
             .ConfigureAwait(false)
@@ -57,15 +62,29 @@ public abstract class UdpConnectionBase : IDisposable
     /// <summary>
     /// 受信データを処理する（派生クラスで実装）
     /// </summary>
-    protected abstract void ProcessReceivedData(byte[] data);
+    /// <param name="data">受信データ</param>
+    /// <param name="remoteEndPoint">送信元エンドポイント</param>
+    protected abstract void ProcessReceivedData(byte[] data, IPEndPoint remoteEndPoint);
 
     /// <summary>
-    /// メッセージを送信する
+    /// メッセージを送信する（デフォルトの送信先へ）
     /// </summary>
     protected bool SendMessage<T>(MessageType type, T message)
         where T : IMessage
     {
-        return SendMessageAsync(type, message, CancellationToken.None)
+        return SendMessageTo(type, message, null);
+    }
+
+    /// <summary>
+    /// メッセージを指定した送信先へ送信する
+    /// </summary>
+    /// <param name="type">メッセージタイプ</param>
+    /// <param name="message">メッセージ</param>
+    /// <param name="destination">送信先（nullの場合はデフォルトの送信先）</param>
+    protected bool SendMessageTo<T>(MessageType type, T message, IPEndPoint? destination)
+        where T : IMessage
+    {
+        return SendMessageToAsync(type, message, destination, CancellationToken.None)
             .ConfigureAwait(false)
             .GetAwaiter()
             .GetResult();
@@ -87,7 +106,7 @@ public abstract class UdpConnectionBase : IDisposable
 
                 _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-                _sendChannel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(options.SendQueueCapacity)
+                _sendChannel = Channel.CreateBounded<(byte[], IPEndPoint?)>(new BoundedChannelOptions(options.SendQueueCapacity)
                 {
                     FullMode = BoundedChannelFullMode.Wait,
                     SingleReader = true,
@@ -117,7 +136,7 @@ public abstract class UdpConnectionBase : IDisposable
         Task? receiveLoop;
         Task? sendLoop;
         UdpClient? udpClient;
-        Channel<byte[]>? sendChannel;
+        Channel<(byte[], IPEndPoint?)>? sendChannel;
 
         lock (_lock)
         {
@@ -177,7 +196,7 @@ public abstract class UdpConnectionBase : IDisposable
         return true;
     }
 
-    private async Task<bool> SendMessageAsync<T>(MessageType type, T message, CancellationToken ct)
+    private async Task<bool> SendMessageToAsync<T>(MessageType type, T message, IPEndPoint? destination, CancellationToken ct)
         where T : IMessage
     {
         var channel = _sendChannel;
@@ -195,7 +214,7 @@ public abstract class UdpConnectionBase : IDisposable
                 ? CancellationTokenSource.CreateLinkedTokenSource(cts.Token, ct)
                 : CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-            await channel.Writer.WriteAsync(packet, linkedCts.Token).ConfigureAwait(false);
+            await channel.Writer.WriteAsync((packet, destination), linkedCts.Token).ConfigureAwait(false);
 
             LogSend(type, message, packet);
 
@@ -228,7 +247,7 @@ public abstract class UdpConnectionBase : IDisposable
                 }
 
                 var result = await udpClient.ReceiveAsync(ct).ConfigureAwait(false);
-                ProcessReceivedData(result.Buffer);
+                ProcessReceivedData(result.Buffer, result.RemoteEndPoint);
             }
             catch (OperationCanceledException)
             {
@@ -255,18 +274,25 @@ public abstract class UdpConnectionBase : IDisposable
 
         try
         {
-            await foreach (var packet in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            await foreach (var (packet, destination) in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
                 var udpClient = _udpClient;
-                var remoteEndPoint = _remoteEndPoint;
-                if (udpClient == null || remoteEndPoint == null)
+                if (udpClient == null)
                 {
                     break;
                 }
 
+                // 送信先を決定: 明示的な指定 > デフォルトの送信先
+                var targetEndPoint = destination ?? _remoteEndPoint;
+                if (targetEndPoint == null)
+                {
+                    // 送信先が不明な場合はスキップ
+                    continue;
+                }
+
                 try
                 {
-                    await udpClient.SendAsync(packet, packet.Length, remoteEndPoint).ConfigureAwait(false);
+                    await udpClient.SendAsync(packet, packet.Length, targetEndPoint).ConfigureAwait(false);
                 }
                 catch (SocketException)
                 {
@@ -304,6 +330,14 @@ public abstract class UdpConnectionBase : IDisposable
         {
             _logger.LogI(msgLine);
         }
+    }
+
+    /// <summary>
+    /// 情報ログを出力する（派生クラスから呼び出し）
+    /// </summary>
+    protected void LogInfo(string message)
+    {
+        _logger?.LogI(message);
     }
 
     private void LogSend<T>(MessageType type, T message, byte[] packet)

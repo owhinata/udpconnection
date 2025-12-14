@@ -2,6 +2,8 @@ using UdpConnection.Messages;
 using UdpConnection.Serialization;
 using UdpConnection.Tests.TestRunner;
 
+// Note: NegotiationRequestMessage and NegotiationResponseMessage are in UdpConnection.Messages namespace
+
 namespace UdpConnection.Tests;
 
 public class MessageTests
@@ -19,9 +21,11 @@ public class MessageTests
     {
         var original = new SampleUpMessage
         {
+            SessionId = 0xABCD,
+            PeerId = 0x1234,
             Command = CommandType.Start,
             SignedValue = -128,
-            Sequence = 0x1234,
+            Sequence = 0x5678,
             Position = 123.456
         };
 
@@ -31,30 +35,32 @@ public class MessageTests
 
         var result = SampleUpMessage.ReadFrom(data);
 
+        Assert.AreEqual((ushort)0xABCD, result.SessionId);
+        Assert.AreEqual((ushort)0x1234, result.PeerId);
         Assert.AreEqual(CommandType.Start, result.Command);
         Assert.AreEqual(-128, result.SignedValue);
-        Assert.AreEqual((ushort)0x1234, result.Sequence);
+        Assert.AreEqual((ushort)0x5678, result.Sequence);
         Assert.AreEqualWithTolerance(123.456, result.Position, 0.0001);
     }
 
     /// <summary>
     /// テスト名: SampleUpMessage_PayloadSize
-    /// 目的: SampleUpMessageのペイロードサイズが8バイトであることを確認する
+    /// 目的: SampleUpMessageのペイロードサイズが12バイトであることを確認する
     /// 手順: メッセージを書き込み、バイト配列の長さを確認する
-    /// 期待値: 8バイト
+    /// 期待値: 12バイト (SessionId + PeerId + 既存8バイト)
     /// </summary>
     [Test]
     public void SampleUpMessage_PayloadSize()
     {
         var message = new SampleUpMessage();
-        Assert.AreEqual(8, message.PayloadSize);
-        Assert.AreEqual(8, SampleUpMessage.PayloadSizeConst);
+        Assert.AreEqual(12, message.PayloadSize);
+        Assert.AreEqual(12, SampleUpMessage.PayloadSizeConst);
 
         var writer = new BitWriter();
         message.WriteTo(writer);
         var data = writer.ToArray();
 
-        Assert.AreEqual(8, data.Length);
+        Assert.AreEqual(12, data.Length);
     }
 
     /// <summary>
@@ -155,10 +161,10 @@ public class MessageTests
         original.WriteTo(writer);
         var data = writer.ToArray();
 
-        // ビット配置: Command(3) + Sign(1) + Value(8) + Reserved(4) + Sequence(16) + Position(32)
-        // Sequence開始位置: (3+1+8+4)/8 = 2バイト目から
-        Assert.AreEqual(0xAB, data[2]); // 上位バイト
-        Assert.AreEqual(0xCD, data[3]); // 下位バイト
+        // ビット配置: SessionId(16) + PeerId(16) + Command(3) + Sign(1) + Value(8) + Reserved(4) + Sequence(16) + Position(32)
+        // Sequence開始位置: (16+16+3+1+8+4)/8 = 6バイト目から
+        Assert.AreEqual(0xAB, data[6]); // 上位バイト
+        Assert.AreEqual(0xCD, data[7]); // 下位バイト
     }
 
     /// <summary>
@@ -192,17 +198,21 @@ public class MessageTests
     {
         var message = new SampleUpMessage
         {
+            SessionId = 0xABCD,
+            PeerId = 0x1234,
             Command = CommandType.Start,
             SignedValue = -100,
-            Sequence = 0x1234,
+            Sequence = 0x5678,
             Position = 50.5
         };
 
         var logString = message.ToLogString();
 
+        Assert.IsTrue(logString.Contains("SessionId=0xABCD"), "Should contain SessionId");
+        Assert.IsTrue(logString.Contains("PeerId=0x1234"), "Should contain PeerId");
         Assert.IsTrue(logString.Contains("Command=Start"), "Should contain Command");
         Assert.IsTrue(logString.Contains("SignedValue=-100"), "Should contain SignedValue");
-        Assert.IsTrue(logString.Contains("Sequence=0x1234"), "Should contain Sequence");
+        Assert.IsTrue(logString.Contains("Sequence=0x5678"), "Should contain Sequence");
         Assert.IsTrue(logString.Contains("Position="), "Should contain Position");
     }
 
@@ -221,9 +231,11 @@ public class MessageTests
     {
         var original = new SampleDownMessage
         {
+            SessionId = 0x1234,
+            PeerId = 0xABCD,
             Status = StatusType.Running,
             SignedValue = 50,
-            Timestamp = 0xABCD,
+            Timestamp = 0x5678,
             Velocity = 99.99
         };
 
@@ -233,30 +245,32 @@ public class MessageTests
 
         var result = SampleDownMessage.ReadFrom(data);
 
+        Assert.AreEqual((ushort)0x1234, result.SessionId);
+        Assert.AreEqual((ushort)0xABCD, result.PeerId);
         Assert.AreEqual(StatusType.Running, result.Status);
         Assert.AreEqual(50, result.SignedValue);
-        Assert.AreEqual((ushort)0xABCD, result.Timestamp);
+        Assert.AreEqual((ushort)0x5678, result.Timestamp);
         Assert.AreEqualWithTolerance(99.99, result.Velocity, 0.0001);
     }
 
     /// <summary>
     /// テスト名: SampleDownMessage_PayloadSize
-    /// 目的: SampleDownMessageのペイロードサイズが8バイトであることを確認する
+    /// 目的: SampleDownMessageのペイロードサイズが12バイトであることを確認する
     /// 手順: メッセージを書き込み、バイト配列の長さを確認する
-    /// 期待値: 8バイト
+    /// 期待値: 12バイト (SessionId + PeerId + 既存8バイト)
     /// </summary>
     [Test]
     public void SampleDownMessage_PayloadSize()
     {
         var message = new SampleDownMessage();
-        Assert.AreEqual(8, message.PayloadSize);
-        Assert.AreEqual(8, SampleDownMessage.PayloadSizeConst);
+        Assert.AreEqual(12, message.PayloadSize);
+        Assert.AreEqual(12, SampleDownMessage.PayloadSizeConst);
 
         var writer = new BitWriter();
         message.WriteTo(writer);
         var data = writer.ToArray();
 
-        Assert.AreEqual(8, data.Length);
+        Assert.AreEqual(12, data.Length);
     }
 
     /// <summary>
@@ -322,9 +336,10 @@ public class MessageTests
         original.WriteTo(writer);
         var data = writer.ToArray();
 
-        // ビット配置: Status(3) + Sign(1) + Value(8) + Reserved(4) + Timestamp(16) + Velocity(32)
-        Assert.AreEqual(0x12, data[2]); // 上位バイト
-        Assert.AreEqual(0x34, data[3]); // 下位バイト
+        // ビット配置: SessionId(16) + PeerId(16) + Status(3) + Sign(1) + Value(8) + Reserved(4) + Timestamp(16) + Velocity(32)
+        // Timestamp開始位置: (16+16+3+1+8+4)/8 = 6バイト目から
+        Assert.AreEqual(0x12, data[6]); // 上位バイト
+        Assert.AreEqual(0x34, data[7]); // 下位バイト
     }
 
     /// <summary>
@@ -358,6 +373,8 @@ public class MessageTests
     {
         var message = new SampleDownMessage
         {
+            SessionId = 0x1234,
+            PeerId = 0xABCD,
             Status = StatusType.Error,
             SignedValue = -50,
             Timestamp = 0xFFFF,
@@ -366,10 +383,66 @@ public class MessageTests
 
         var logString = message.ToLogString();
 
+        Assert.IsTrue(logString.Contains("SessionId=0x1234"), "Should contain SessionId");
+        Assert.IsTrue(logString.Contains("PeerId=0xABCD"), "Should contain PeerId");
         Assert.IsTrue(logString.Contains("Status=Error"), "Should contain Status");
         Assert.IsTrue(logString.Contains("SignedValue=-50"), "Should contain SignedValue");
         Assert.IsTrue(logString.Contains("Timestamp=0xFFFF"), "Should contain Timestamp");
         Assert.IsTrue(logString.Contains("Velocity="), "Should contain Velocity");
+    }
+
+    #endregion
+
+    #region NegotiationMessage Tests
+
+    /// <summary>
+    /// テスト名: NegotiationRequestMessage_Roundtrip
+    /// 目的: NegotiationRequestMessageが正しくシリアライズ・デシリアライズされることを確認する
+    /// </summary>
+    [Test]
+    public void NegotiationRequestMessage_Roundtrip()
+    {
+        var original = new NegotiationRequestMessage
+        {
+            SessionId = 0x1234,
+            PeerId = 0xABCD
+        };
+
+        var writer = new BitWriter();
+        original.WriteTo(writer);
+        var data = writer.ToArray();
+
+        Assert.AreEqual(4, data.Length);
+
+        var result = NegotiationRequestMessage.ReadFrom(data);
+
+        Assert.AreEqual((ushort)0x1234, result.SessionId);
+        Assert.AreEqual((ushort)0xABCD, result.PeerId);
+    }
+
+    /// <summary>
+    /// テスト名: NegotiationResponseMessage_Roundtrip
+    /// 目的: NegotiationResponseMessageが正しくシリアライズ・デシリアライズされることを確認する
+    /// </summary>
+    [Test]
+    public void NegotiationResponseMessage_Roundtrip()
+    {
+        var original = new NegotiationResponseMessage
+        {
+            SessionId = 0x5678,
+            PeerId = 0x1234
+        };
+
+        var writer = new BitWriter();
+        original.WriteTo(writer);
+        var data = writer.ToArray();
+
+        Assert.AreEqual(4, data.Length);
+
+        var result = NegotiationResponseMessage.ReadFrom(data);
+
+        Assert.AreEqual((ushort)0x5678, result.SessionId);
+        Assert.AreEqual((ushort)0x1234, result.PeerId);
     }
 
     #endregion

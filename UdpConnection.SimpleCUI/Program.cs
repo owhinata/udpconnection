@@ -70,7 +70,9 @@ static void PrintUsage(string? error = null)
     Console.Error.WriteLine("  UdpConnection.SimpleCUI -p");
     Console.Error.WriteLine("  UdpConnection.SimpleCUI -c --debug");
     Console.Error.WriteLine();
-    Console.Error.WriteLine("Then use 'start <local> <remote>' to start connection:");
-    Console.Error.WriteLine("  start :5000 :5001              # local=0.0.0.0:5000, remote=127.0.0.1:5001");
-    Console.Error.WriteLine("  start 127.0.0.1:5000 192.168.1.1:5001");
+    Console.Error.WriteLine("Peer mode: start <local> <remote> <peerId>");
+    Console.Error.WriteLine("  start :5000 :5001 0x1234       # local=0.0.0.0:5000, remote=127.0.0.1:5001, peerId=0x1234");
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Controller mode: start <local>");
+    Console.Error.WriteLine("  start :5001                    # local=0.0.0.0:5001 (accepts connections from any peer)");
 }

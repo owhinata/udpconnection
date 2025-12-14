@@ -6,6 +6,8 @@ namespace UdpConnection.Protocol;
 public enum MessageType : byte
 {
     Unknown = 0x00,
-    SampleUp = 0x01,
-    SampleDown = 0x02,
+    NegotiationRequest = 0x01,
+    NegotiationResponse = 0x02,
+    SampleUp = 0x03,
+    SampleDown = 0x04,
 }

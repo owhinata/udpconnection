@@ -8,22 +8,34 @@ namespace UdpConnection.Messages;
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/// |          SessionId (16bit)    |           PeerId (16bit)      |
+/// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |Sts|S|   Value (8bit)  | Reserved|        Timestamp (16bit)    |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                    Velocity (32bit固定小数点)                  |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ///
-/// Total: 64 bits = 8 bytes
+/// Total: 96 bits = 12 bytes
 /// </summary>
 public class SampleDownMessage : IMessage
 {
     /// <summary>
     /// ペイロードサイズ（バイト）
     /// </summary>
-    public const int PayloadSizeConst = 8;
+    public const int PayloadSizeConst = 12;
 
     /// <inheritdoc />
     public int PayloadSize => PayloadSizeConst;
+
+    /// <summary>
+    /// セッションID（Controller側管理ID、0=未接続）
+    /// </summary>
+    public ushort SessionId { get; set; }
+
+    /// <summary>
+    /// Peer ID
+    /// </summary>
+    public ushort PeerId { get; set; }
 
     /// <summary>
     /// ステータス種別（3bit）
@@ -48,15 +60,21 @@ public class SampleDownMessage : IMessage
 
     public void WriteTo(BitWriter writer)
     {
+        // SessionId: 16bit
+        writer.WriteUInt16(SessionId);
+
+        // PeerId: 16bit
+        writer.WriteUInt16(PeerId);
+
         // Status: 3bit
         writer.WriteBits((uint)Status, 3);
 
         // Sign: 1bit (0=正, 1=負)
-        bool isNegative = SignedValue < 0;
+        var isNegative = SignedValue < 0;
         writer.WriteBool(isNegative);
 
         // Value: 8bit (絶対値)
-        int absValue = Math.Abs(SignedValue);
+        var absValue = Math.Abs(SignedValue);
         if (absValue > 255) absValue = 255;
         writer.WriteBits((uint)absValue, 8);
 
@@ -74,14 +92,20 @@ public class SampleDownMessage : IMessage
     {
         var message = new SampleDownMessage();
 
+        // SessionId: 16bit
+        message.SessionId = reader.ReadUInt16();
+
+        // PeerId: 16bit
+        message.PeerId = reader.ReadUInt16();
+
         // Status: 3bit
         message.Status = (StatusType)reader.ReadBits(3);
 
         // Sign: 1bit
-        bool isNegative = reader.ReadBool();
+        var isNegative = reader.ReadBool();
 
         // Value: 8bit
-        int absValue = (int)reader.ReadBits(8);
+        var absValue = (int)reader.ReadBits(8);
 
         message.SignedValue = isNegative ? -absValue : absValue;
 
@@ -105,6 +129,6 @@ public class SampleDownMessage : IMessage
 
     public string ToLogString()
     {
-        return $"SampleDown (Status={Status}, SignedValue={SignedValue}, Timestamp=0x{Timestamp:X4}, Velocity={Velocity:F3})";
+        return $"SampleDown (SessionId=0x{SessionId:X4}, PeerId=0x{PeerId:X4}, Status={Status}, SignedValue={SignedValue}, Timestamp=0x{Timestamp:X4}, Velocity={Velocity:F3})";
     }
 }
