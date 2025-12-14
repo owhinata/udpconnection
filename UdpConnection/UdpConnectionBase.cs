@@ -152,9 +152,9 @@ public abstract class UdpConnectionBase : IDisposable
             {
                 await receiveLoop.ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch
             {
-                // 正常なキャンセル
+                // キャンセルやその他の例外を無視
             }
         }
 
@@ -164,9 +164,9 @@ public abstract class UdpConnectionBase : IDisposable
             {
                 await sendLoop.ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch
             {
-                // 正常なキャンセル
+                // キャンセルやその他の例外を無視
             }
         }
 
@@ -180,6 +180,7 @@ public abstract class UdpConnectionBase : IDisposable
         where T : IMessage
     {
         var channel = _sendChannel;
+        var cts = _cts;
         if (channel == null)
         {
             return false;
@@ -189,8 +190,8 @@ public abstract class UdpConnectionBase : IDisposable
 
         try
         {
-            using var linkedCts = _cts != null
-                ? CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct)
+            using var linkedCts = cts != null
+                ? CancellationTokenSource.CreateLinkedTokenSource(cts.Token, ct)
                 : CancellationTokenSource.CreateLinkedTokenSource(ct);
 
             await channel.Writer.WriteAsync(packet, linkedCts.Token).ConfigureAwait(false);
@@ -204,6 +205,10 @@ public abstract class UdpConnectionBase : IDisposable
             return false;
         }
         catch (ChannelClosedException)
+        {
+            return false;
+        }
+        catch (ObjectDisposedException)
         {
             return false;
         }
