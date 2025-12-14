@@ -105,6 +105,6 @@ public class SampleUpMessage : IMessage
 
     public string ToLogString()
     {
-        return $"Command={Command}, SignedValue={SignedValue}, Sequence=0x{Sequence:X4}, Position={Position:F3}";
+        return $"SampleUp (Command={Command}, SignedValue={SignedValue}, Sequence=0x{Sequence:X4}, Position={Position:F3})";
     }
 }

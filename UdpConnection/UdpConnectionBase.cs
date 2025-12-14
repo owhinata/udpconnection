@@ -294,11 +294,14 @@ public abstract class UdpConnectionBase : IDisposable
             return;
         }
 
-        _logger.LogI($"[Recv] {type}: {message.ToLogString()}");
-
+        var msgLine = $"[Recv] {(int)type,2}: {message.ToLogString()}";
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogD($"       Hex: {ToHexString(packet)}");
+            _logger.LogD($"{msgLine}\n{ToHexString(packet)}");
+        }
+        else
+        {
+            _logger.LogI(msgLine);
         }
     }
 
@@ -310,17 +313,37 @@ public abstract class UdpConnectionBase : IDisposable
             return;
         }
 
-        _logger.LogI($"[Send] {type}: {message.ToLogString()}");
-
+        var msgLine = $"[Send] {(int)type,2}: {message.ToLogString()}";
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogD($"       Hex: {ToHexString(packet)}");
+            _logger.LogD($"{msgLine}\n{ToHexString(packet)}");
+        }
+        else
+        {
+            _logger.LogI(msgLine);
         }
     }
 
     private static string ToHexString(byte[] data)
     {
-        return BitConverter.ToString(data).Replace("-", " ");
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < data.Length; i += 16)
+        {
+            if (i > 0)
+            {
+                sb.AppendLine();
+            }
+            sb.Append($"  {i:X4}:");
+            for (int j = 0; j < 16 && i + j < data.Length; j++)
+            {
+                if (j == 8)
+                {
+                    sb.Append(' '); // middle separator
+                }
+                sb.Append($" {data[i + j]:X2}");
+            }
+        }
+        return sb.ToString();
     }
 
     private static byte[] SerializeMessage<T>(MessageType type, T message)

@@ -105,6 +105,6 @@ public class SampleDownMessage : IMessage
 
     public string ToLogString()
     {
-        return $"Status={Status}, SignedValue={SignedValue}, Timestamp=0x{Timestamp:X4}, Velocity={Velocity:F3}";
+        return $"SampleDown (Status={Status}, SignedValue={SignedValue}, Timestamp=0x{Timestamp:X4}, Velocity={Velocity:F3})";
     }
 }
