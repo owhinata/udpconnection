@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+  </PropertyGroup>
+
+  <Target Name="FormatOnBuild" BeforeTargets="BeforeBuild" Condition="'$(SkipFormat)' != 'true'">
+    <Exec Command="dotnet format &quot;$(MSBuildProjectFullPath)&quot; --no-restore --verbosity quiet" />
+  </Target>
+</Project>
