@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using UdpConnection.Logging;
 using UdpConnection.Messages;
 using UdpConnection.Protocol;
 using UdpConnection.Serialization;
@@ -12,6 +13,7 @@ namespace UdpConnection;
 /// </summary>
 public class UdpConnection : IDisposable
 {
+    private readonly ILogger? _logger;
     private UdpClient? _udpClient;
     private CancellationTokenSource? _cts;
     private Task? _receiveLoop;
@@ -20,6 +22,11 @@ public class UdpConnection : IDisposable
     private IPEndPoint? _remoteEndPoint;
     private bool _disposed;
     private readonly object _lock = new();
+
+    public UdpConnection(ILogger? logger = null)
+    {
+        _logger = logger;
+    }
 
     /// <summary>
     /// SampleDownメッセージ受信時に発火するイベント
@@ -33,7 +40,7 @@ public class UdpConnection : IDisposable
     /// <returns>成功した場合はtrue、既に開始済みまたは失敗した場合はfalse</returns>
     public bool Start(UdpConnectionOptions options)
     {
-        return StartInternalAsync(options, CancellationToken.None)
+        return StartAsync(options, CancellationToken.None)
             .ConfigureAwait(false)
             .GetAwaiter()
             .GetResult();
@@ -45,7 +52,7 @@ public class UdpConnection : IDisposable
     /// <returns>成功した場合はtrue、既に停止済みの場合はfalse</returns>
     public bool Stop()
     {
-        return StopInternalAsync(CancellationToken.None)
+        return StopAsync(CancellationToken.None)
             .ConfigureAwait(false)
             .GetAwaiter()
             .GetResult();
@@ -55,15 +62,16 @@ public class UdpConnection : IDisposable
     /// SampleUpメッセージを送信する
     /// </summary>
     /// <param name="message">送信するメッセージ</param>
-    public void SendSampleUp(SampleUpMessage message)
+    /// <returns>送信キューへの追加に成功した場合はtrue</returns>
+    public bool SendSampleUpMessage(SampleUpMessage message)
     {
-        SendSampleUpAsync(message, CancellationToken.None)
+        return SendMessageAsync(MessageType.SampleUp, message, CancellationToken.None)
             .ConfigureAwait(false)
             .GetAwaiter()
             .GetResult();
     }
 
-    private Task<bool> StartInternalAsync(UdpConnectionOptions options, CancellationToken ct)
+    private Task<bool> StartAsync(UdpConnectionOptions options, CancellationToken ct)
     {
         lock (_lock)
         {
@@ -103,7 +111,7 @@ public class UdpConnection : IDisposable
         }
     }
 
-    private async Task<bool> StopInternalAsync(CancellationToken ct)
+    private async Task<bool> StopAsync(CancellationToken ct)
     {
         CancellationTokenSource? cts;
         Task? receiveLoop;
@@ -169,21 +177,37 @@ public class UdpConnection : IDisposable
         return true;
     }
 
-    private async Task SendSampleUpAsync(SampleUpMessage message, CancellationToken ct)
+    private async Task<bool> SendMessageAsync<T>(MessageType type, T message, CancellationToken ct)
+        where T : IMessage
     {
         var channel = _sendChannel;
         if (channel == null)
         {
-            throw new InvalidOperationException("Connection is not started");
+            return false;
         }
 
-        var packet = SerializeMessage(MessageType.SampleUp, message);
+        var packet = SerializeMessage(type, message);
 
-        using var linkedCts = _cts != null
-            ? CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct)
-            : CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            using var linkedCts = _cts != null
+                ? CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct)
+                : CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        await channel.Writer.WriteAsync(packet, linkedCts.Token).ConfigureAwait(false);
+            await channel.Writer.WriteAsync(packet, linkedCts.Token).ConfigureAwait(false);
+
+            LogSend(type, message, packet);
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (ChannelClosedException)
+        {
+            return false;
+        }
     }
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
@@ -275,6 +299,7 @@ public class UdpConnection : IDisposable
         {
             case MessageType.SampleDown:
                 var sampleDownMessage = SampleDownMessage.ReadFrom(payloadReader);
+                LogReceive(header.Type, sampleDownMessage, data);
                 SampleDownReceived?.Invoke(this, sampleDownMessage);
                 break;
 
@@ -284,12 +309,50 @@ public class UdpConnection : IDisposable
         }
     }
 
-    private static byte[] SerializeMessage(MessageType type, SampleUpMessage message)
+    private void LogSend<T>(MessageType type, T message, byte[] packet)
+        where T : IMessage
+    {
+        if (_logger == null)
+        {
+            return;
+        }
+
+        _logger.LogI($"[Send] {type}: {message.ToLogString()}");
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogD($"       Hex: {ToHexString(packet)}");
+        }
+    }
+
+    private void LogReceive<T>(MessageType type, T message, byte[] packet)
+        where T : IMessage
+    {
+        if (_logger == null)
+        {
+            return;
+        }
+
+        _logger.LogI($"[Recv] {type}: {message.ToLogString()}");
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogD($"       Hex: {ToHexString(packet)}");
+        }
+    }
+
+    private static string ToHexString(byte[] data)
+    {
+        return BitConverter.ToString(data).Replace("-", " ");
+    }
+
+    private static byte[] SerializeMessage<T>(MessageType type, T message)
+        where T : IMessage
     {
         var writer = new BitWriter();
 
         // ヘッダー
-        var header = new MessageHeader(type, SampleUpMessage.PayloadSize);
+        var header = new MessageHeader(type, (ushort)message.PayloadSize);
         header.WriteTo(writer);
 
         // ペイロード

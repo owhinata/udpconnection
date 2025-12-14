@@ -15,12 +15,15 @@ namespace UdpConnection.Messages;
 ///
 /// Total: 64 bits = 8 bytes
 /// </summary>
-public class SampleDownMessage
+public class SampleDownMessage : IMessage
 {
     /// <summary>
     /// ペイロードサイズ（バイト）
     /// </summary>
-    public const int PayloadSize = 8;
+    public const int PayloadSizeConst = 8;
+
+    /// <inheritdoc />
+    public int PayloadSize => PayloadSizeConst;
 
     /// <summary>
     /// ステータス種別（3bit）
@@ -98,5 +101,10 @@ public class SampleDownMessage
     {
         var reader = new BitReader(buffer);
         return ReadFrom(reader);
+    }
+
+    public string ToLogString()
+    {
+        return $"Status={Status}, SignedValue={SignedValue}, Timestamp=0x{Timestamp:X4}, Velocity={Velocity:F3}";
     }
 }
