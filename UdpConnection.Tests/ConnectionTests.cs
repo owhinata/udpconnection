@@ -221,7 +221,7 @@ public class ConnectionTests
         using var controller = new UdpConnectionController();
 
         controller.Start(new UdpConnectionOptions(local, remote));
-        var result = controller.SendSampleDownMessage(new SampleDownMessage());
+        var result = controller.SendSampleDownMessage(new SampleDownMessage(), remote);
 
         Assert.IsTrue(result);
     }
@@ -247,9 +247,9 @@ public class ConnectionTests
         SampleUpMessage? receivedMessage = null;
         var receivedEvent = new ManualResetEventSlim(false);
 
-        controller.SampleUpReceived += (sender, msg) =>
+        controller.SampleUpReceived += (sender, e) =>
         {
-            receivedMessage = msg;
+            receivedMessage = e.Message;
             receivedEvent.Set();
         };
 
@@ -313,7 +313,7 @@ public class ConnectionTests
             Velocity = -123.456
         };
 
-        controller.SendSampleDownMessage(sentMessage);
+        controller.SendSampleDownMessage(sentMessage, peerLocal);
 
         // 受信を待機（最大1秒）
         var received = receivedEvent.Wait(TimeSpan.FromSeconds(1));
@@ -343,11 +343,11 @@ public class ConnectionTests
         var receivedSequences = new List<ushort>();
         var allReceivedEvent = new ManualResetEventSlim(false);
 
-        controller.SampleUpReceived += (sender, msg) =>
+        controller.SampleUpReceived += (sender, e) =>
         {
             lock (receivedSequences)
             {
-                receivedSequences.Add(msg.Sequence);
+                receivedSequences.Add(e.Message.Sequence);
                 if (receivedSequences.Count >= 3)
                 {
                     allReceivedEvent.Set();

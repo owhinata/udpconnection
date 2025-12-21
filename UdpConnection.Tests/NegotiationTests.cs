@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 
 using UdpConnection.Tests.TestRunner;
@@ -16,6 +17,44 @@ public class NegotiationTests
             new IPEndPoint(IPAddress.Loopback, port1),
             new IPEndPoint(IPAddress.Loopback, port2)
         );
+    }
+
+    /// <summary>
+    /// テスト用のPeer管理クラス（アプリ層でのPeer管理をシミュレート）
+    /// </summary>
+    private class TestPeerManager
+    {
+        private readonly ConcurrentDictionary<ushort, IPEndPoint> _peers = new();
+        private readonly ConcurrentDictionary<ushort, ushort> _peerIdToSessionId = new();
+        private readonly object _lock = new();
+        private ushort _nextSessionId = 1;
+
+        public int PeerCount => _peers.Count;
+
+        public ushort HandleNegotiationRequest(ushort peerId, IPEndPoint remoteEndPoint)
+        {
+            if (_peerIdToSessionId.TryGetValue(peerId, out var sessionId))
+            {
+                // 既存Peer: エンドポイント更新
+                _peers[sessionId] = remoteEndPoint;
+                return sessionId;
+            }
+
+            // 新規Peer
+            lock (_lock)
+            {
+                sessionId = _nextSessionId++;
+                if (_nextSessionId == 0) _nextSessionId = 1;
+            }
+            _peers[sessionId] = remoteEndPoint;
+            _peerIdToSessionId[peerId] = sessionId;
+            return sessionId;
+        }
+
+        public bool TryGetPeerEndPoint(ushort sessionId, out IPEndPoint? endPoint)
+        {
+            return _peers.TryGetValue(sessionId, out endPoint);
+        }
     }
 
     #region Peer Negotiation Tests
@@ -76,21 +115,38 @@ public class NegotiationTests
 
     #endregion
 
-    #region Controller Peer Management Tests
+    #region Controller Negotiation Tests
 
     /// <summary>
-    /// テスト名: Controller_InitialPeersEmpty
-    /// 目的: Controller開始時にPeersが空であることを確認する
+    /// テスト名: Controller_ReceivesNegotiationRequest
+    /// 目的: ControllerがNegotiationRequestを受信し、イベントが発火することを確認する
     /// </summary>
     [Test]
-    public void Controller_InitialPeersEmpty()
+    public void Controller_ReceivesNegotiationRequest()
     {
-        var (local, remote) = GetTestEndpoints();
+        var (peerLocal, controllerLocal) = GetTestEndpoints();
         using var controller = new UdpConnectionController();
 
-        controller.Start(new UdpConnectionOptions(local, remote));
+        var requestReceived = new ManualResetEventSlim(false);
+        ushort receivedPeerId = 0;
 
-        Assert.AreEqual(0, controller.Peers.Count);
+        controller.NegotiationRequestReceived += (sender, e) =>
+        {
+            receivedPeerId = e.Request.PeerId;
+            e.ResponseSessionId = 1;  // SessionIdを設定
+            requestReceived.Set();
+        };
+
+        controller.Start(new UdpConnectionOptions(controllerLocal, peerLocal));
+
+        using var peer = new UdpConnectionPeer();
+        peer.DisconnectedInterval = TimeSpan.Zero;
+        peer.Start(new UdpConnectionOptions(peerLocal, controllerLocal, 0x1234));
+        peer.SendNegotiation();
+
+        var received = requestReceived.Wait(TimeSpan.FromSeconds(2));
+        Assert.IsTrue(received, "NegotiationRequest was not received");
+        Assert.AreEqual((ushort)0x1234, receivedPeerId);
     }
 
     #endregion
@@ -114,10 +170,13 @@ public class NegotiationTests
         peer.ConnectedInterval = TimeSpan.Zero;
 
         var peerConnectedEvent = new ManualResetEventSlim(false);
-        var controllerPeerConnectedEvent = new ManualResetEventSlim(false);
+        var controllerRequestReceivedEvent = new ManualResetEventSlim(false);
 
         ushort receivedSessionId = 0;
-        ushort controllerSessionId = 0;
+        ushort assignedSessionId = 0;
+
+        // アプリ層でPeer管理
+        var peerManager = new TestPeerManager();
 
         peer.NegotiationStateChanged += (sender, e) =>
         {
@@ -128,13 +187,12 @@ public class NegotiationTests
             }
         };
 
-        controller.PeerStateChanged += (sender, e) =>
+        controller.NegotiationRequestReceived += (sender, e) =>
         {
-            if (e.State == PeerState.Connected)
-            {
-                controllerSessionId = e.SessionId;
-                controllerPeerConnectedEvent.Set();
-            }
+            // アプリ層でSessionIdを決定
+            assignedSessionId = peerManager.HandleNegotiationRequest(e.Request.PeerId, e.RemoteEndPoint);
+            e.ResponseSessionId = assignedSessionId;
+            controllerRequestReceivedEvent.Set();
         };
 
         controller.Start(new UdpConnectionOptions(controllerLocal, peerLocal));
@@ -143,10 +201,10 @@ public class NegotiationTests
         // 手動でネゴシエーション送信
         peer.SendNegotiation();
 
-        // Controller側でPeer接続イベントを待機
-        var controllerReceived = controllerPeerConnectedEvent.Wait(TimeSpan.FromSeconds(2));
-        Assert.IsTrue(controllerReceived, "Controller did not receive peer connection");
-        Assert.AreEqual((ushort)1, controllerSessionId, "First SessionId should be 1");
+        // Controller側でリクエスト受信を待機
+        var controllerReceived = controllerRequestReceivedEvent.Wait(TimeSpan.FromSeconds(2));
+        Assert.IsTrue(controllerReceived, "Controller did not receive negotiation request");
+        Assert.AreEqual((ushort)1, assignedSessionId, "First SessionId should be 1");
 
         // Peer側で接続イベントを待機
         var peerReceived = peerConnectedEvent.Wait(TimeSpan.FromSeconds(2));
@@ -157,16 +215,13 @@ public class NegotiationTests
         Assert.IsTrue(peer.IsConnected);
         Assert.AreEqual((ushort)1, peer.SessionId);
 
-        // Controller Peers確認
-        Assert.AreEqual(1, controller.Peers.Count);
-        Assert.IsTrue(controller.Peers.ContainsKey(1));
-        Assert.AreEqual((ushort)0x1234, controller.Peers[1].PeerId);
+        // PeerManager確認
+        Assert.AreEqual(1, peerManager.PeerCount);
     }
 
     /// <summary>
     /// テスト名: Negotiation_MultiplePeerIds_UniqueSessionIds
-    /// 目的: 同じエンドポイントから異なるPeerIdで接続した場合、異なるSessionIdが割り当てられることを確認する
-    /// 注: 現在の設計では1:1通信のため、異なるエンドポイントからの複数Peerには対応していない
+    /// 目的: 異なるPeerIdで接続した場合、異なるSessionIdが割り当てられることを確認する
     /// </summary>
     [Test]
     public void Negotiation_MultiplePeerIds_UniqueSessionIds()
@@ -182,6 +237,8 @@ public class NegotiationTests
 
         var peer1ConnectedEvent = new ManualResetEventSlim(false);
         var peer2ConnectedEvent = new ManualResetEventSlim(false);
+
+        var peerManager = new TestPeerManager();
 
         peer1.NegotiationStateChanged += (sender, e) =>
         {
@@ -199,7 +256,11 @@ public class NegotiationTests
             }
         };
 
-        // 同じエンドポイントを使用（異なるPeerIdを持つ2つのPeerを順番に接続）
+        controller.NegotiationRequestReceived += (sender, e) =>
+        {
+            e.ResponseSessionId = peerManager.HandleNegotiationRequest(e.Request.PeerId, e.RemoteEndPoint);
+        };
+
         controller.Start(new UdpConnectionOptions(controllerLocal, peerLocal));
 
         // Peer1接続
@@ -210,7 +271,7 @@ public class NegotiationTests
         Assert.AreEqual((ushort)1, peer1.SessionId);
         peer1.Stop();
 
-        // 少し待機してからPeer2接続（同じローカルポートを再利用）
+        // 少し待機してからPeer2接続
         Thread.Sleep(100);
         peer2.Start(new UdpConnectionOptions(peerLocal, controllerLocal, 0x0002));
         peer2.SendNegotiation();
@@ -218,8 +279,8 @@ public class NegotiationTests
         Assert.IsTrue(peer2Received, "Peer2 did not receive connection");
         Assert.AreEqual((ushort)2, peer2.SessionId);
 
-        // Controller側で両方のPeerが登録されていることを確認
-        Assert.AreEqual(2, controller.Peers.Count);
+        // PeerManager側で両方のPeerが登録されていることを確認
+        Assert.AreEqual(2, peerManager.PeerCount);
     }
 
     /// <summary>
@@ -240,6 +301,8 @@ public class NegotiationTests
         var sessionIds = new List<ushort>();
         var connectedEvent = new ManualResetEventSlim(false);
 
+        var peerManager = new TestPeerManager();
+
         peer.NegotiationStateChanged += (sender, e) =>
         {
             if (e.State == NegotiationState.Connected)
@@ -253,6 +316,11 @@ public class NegotiationTests
             }
         };
 
+        controller.NegotiationRequestReceived += (sender, e) =>
+        {
+            e.ResponseSessionId = peerManager.HandleNegotiationRequest(e.Request.PeerId, e.RemoteEndPoint);
+        };
+
         controller.Start(new UdpConnectionOptions(controllerLocal, peerLocal));
         peer.Start(new UdpConnectionOptions(peerLocal, controllerLocal, 0x1234));
 
@@ -263,9 +331,7 @@ public class NegotiationTests
 
         var received = connectedEvent.Wait(TimeSpan.FromSeconds(2));
 
-        // 最初の接続時のみConnectedイベントが発火する（既に接続済みなら発火しない）
-        // ただし、仕様によっては毎回発火する可能性もある
-        // ここではSessionIdが同じことを確認
+        // SessionIdが同じことを確認
         Assert.AreEqual((ushort)1, peer.SessionId, "SessionId should remain 1");
     }
 
@@ -291,6 +357,8 @@ public class NegotiationTests
         var messageReceivedEvent = new ManualResetEventSlim(false);
         Messages.SampleUpMessage? receivedMessage = null;
 
+        var peerManager = new TestPeerManager();
+
         peer.NegotiationStateChanged += (sender, e) =>
         {
             if (e.State == NegotiationState.Connected)
@@ -299,9 +367,14 @@ public class NegotiationTests
             }
         };
 
-        controller.SampleUpReceived += (sender, msg) =>
+        controller.NegotiationRequestReceived += (sender, e) =>
         {
-            receivedMessage = msg;
+            e.ResponseSessionId = peerManager.HandleNegotiationRequest(e.Request.PeerId, e.RemoteEndPoint);
+        };
+
+        controller.SampleUpReceived += (sender, e) =>
+        {
+            receivedMessage = e.Message;
             messageReceivedEvent.Set();
         };
 

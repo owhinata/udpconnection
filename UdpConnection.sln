@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -7,7 +7,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UdpConnection", "UdpConnect
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UdpConnection.Tests", "UdpConnection.Tests\UdpConnection.Tests.csproj", "{1ECACE1E-32D6-4CD2-A7D3-E2C2FB67E0E4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UdpConnection.SimpleCUI", "UdpConnection.SimpleCUI\UdpConnection.SimpleCUI.csproj", "{ADCF2602-5DF6-4F5C-B037-D7E24D781127}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UdpConnection.SimpleCUI.Peer", "UdpConnection.SimpleCUI.Peer\UdpConnection.SimpleCUI.Peer.csproj", "{B1A2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UdpConnection.SimpleCUI.Controller", "UdpConnection.SimpleCUI.Controller\UdpConnection.SimpleCUI.Controller.csproj", "{C2D3E4F5-A6B7-8901-CDEF-123456789ABC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -26,9 +28,13 @@ Global
 		{1ECACE1E-32D6-4CD2-A7D3-E2C2FB67E0E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1ECACE1E-32D6-4CD2-A7D3-E2C2FB67E0E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1ECACE1E-32D6-4CD2-A7D3-E2C2FB67E0E4}.Release|Any CPU.Build.0 = Release|Any CPU
-		{ADCF2602-5DF6-4F5C-B037-D7E24D781127}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{ADCF2602-5DF6-4F5C-B037-D7E24D781127}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{ADCF2602-5DF6-4F5C-B037-D7E24D781127}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{ADCF2602-5DF6-4F5C-B037-D7E24D781127}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C2D3E4F5-A6B7-8901-CDEF-123456789ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C2D3E4F5-A6B7-8901-CDEF-123456789ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C2D3E4F5-A6B7-8901-CDEF-123456789ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C2D3E4F5-A6B7-8901-CDEF-123456789ABC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

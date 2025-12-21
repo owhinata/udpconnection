@@ -9,7 +9,7 @@ namespace UdpConnection;
 /// Peer側のUDP接続クラス
 /// SampleUpメッセージを送信し、SampleDownメッセージを受信する
 /// </summary>
-public class UdpConnectionPeer : UdpConnectionBase
+public class UdpConnectionPeer : UdpConnectionBase, IUdpConnectionPeer
 {
     private readonly object _negotiationLock = new();
     private Timer? _negotiationTimer;

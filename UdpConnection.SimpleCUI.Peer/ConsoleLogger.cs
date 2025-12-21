@@ -1,6 +1,6 @@
 using UdpConnection.Logging;
 
-namespace UdpConnection.SimpleCUI;
+namespace UdpConnection.SimpleCUI.Peer;
 
 public class ConsoleLogger : ILogger
 {
